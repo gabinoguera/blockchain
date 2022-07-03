@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+ 
+// -----------------------------------
+//  ALUMNO   |    ID    |      NOTA
+// -----------------------------------
+//  Marcos |    77755N    |      5
+//  Joan   |    12345X    |      9
+//  Maria  |    02468T    |      2
+//  Marta  |    13579U    |      3
+//  Alba   |    98765Z    |      5
+ 
+contract notas{
+ 
+    //Direccion del profesor que publica la nota
+ 
+    address public profesor;
+ 
+    //Constructor para las variables iniciales del smart contract
+ 
+    constructor() public{
+        profesor = msg.sender; //declaramos la address del profesor
+    }
+ 
+    //Relacion nota/alumno a traves de un mapping con una identidad con hash + un entero que es la nota
+ 
+    mapping(bytes32 => uint) Notas;
+ 
+    //Alumnos que piden revisión de examen con un array
+ 
+    string[] revisiones;
+ 
+    //Eventos
+    event alumno_evaluado(bytes32, uint);
+    event evento_revision(string);
+ 
+    //Funcion para evaluar
+ 
+    function evaluar(string memory _idalumno, uint _nota) public unicamenteProfesor(msg.sender){
+        //Pasar id a un hash para el alumno
+        bytes32 hash_id_alumno = keccak256(abi.encodePacked(_idalumno));
+        //Relacion del hash de la id con la nota
+        Notas[hash_id_alumno] = _nota;
+        //Emitimos un evento que se relaciona con el hash cuando ocurre una evaluacion
+        emit alumno_evaluado(hash_id_alumno, _nota);
+    }
+ 
+    //modifier para que el profesor sea el unico que puede evaluar
+ 
+    modifier unicamenteProfesor(address _direccion){
+        //require para que la address del parametro sea igual al owner del contrato(quien lo despliega)
+        require(_direccion == profesor, "No tienes permisos para ejecutar esta función.");
+        _;
+    }
+ 
+    //Funcion para que el alumno pueda ver sus notas
+ 
+    function verNotas(string memory _idalumno) public view returns(uint){ //es view porque quiero que se retorne un valor
+        //Hash que identifica al alumno y que fue previamente definido
+        bytes32 hash_id_alumno = keccak256(abi.encodePacked(_idalumno));
+        //Nota asociada al hash del alumno
+        uint nota_alumno = Notas[hash_id_alumno];
+        //Visualizar la nota con un return
+        return nota_alumno;
+ 
+    }
+ 
+    //Funcion para pedir que se revise el examen
+ 
+    function Revision(string memory _idalumno) public{
+        //pedido de revision a traves del array previamente definido, almacenamos la identidad del alumno
+        revisiones.push(_idalumno); //la almacenamos como un string y no como hash para que el profesor reciba el nombre del alumno y no el codigo del hash
+        //evento revision
+        emit evento_revision(_idalumno);
+    }
+ 
+    //Funcion que permite al profesor ver quien ha pedido la revision del examen
+ 
+    function verRevisiones() public view unicamenteProfesor(msg.sender) returns(string[] memory){
+        //Devolvemos la id de los alumnos que han solicitado revision
+        return revisiones;      
+    }
+ 
+}
+ 
