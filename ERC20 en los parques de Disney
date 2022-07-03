@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+import "./ERC20.sol";
+ 
+ 
+contract Disney{
+ 
+    //------------------- DECLARACIONES INICIALES -------------------
+ 
+   //Instancia del contrato token que fue creado
+   ERC20Basic private token;
+ 
+   //Instancia del owner(Disney)
+   address payable public owner;
+ 
+   //Constructor
+   constructor() public {
+       token = new ERC20Basic(10000); //cantidad de numero de tokens que se crean inicialmente
+       owner = msg.sender;
+   }
+ 
+   //Estructura de datos que me interesa almacenar de nuestros clientes
+   struct cliente {
+       uint tokens_comprados;
+       string[] atracciones_disfrutadas;
+   }
+ 
+   //Mapping para el registro de clientes
+   mapping(address => cliente) public Clientes;
+ 
+       //------------------- GESTIÓN DE TOKENS -------------------
+ 
+    //Funcion para establecer el precio de un token
+    function precioToken(uint _numTokens) internal pure returns(uint){
+        //Devuelve la conversion de mi token a ether
+        return _numTokens*(1 ether); //en este caso diremos 1 token = 1 ether
+    }
+ 
+    //Funcion para que el cliente compre los tokens de Disney y asi disfrutar de las atracciones
+    function compraTokens(uint _numTokens) public payable{
+        //Establecer el precio de los tokens segun el valor del ether
+        uint coste = precioToken(_numTokens);
+        //Verificamos que el cliente tenga el dinero para comprarlos
+        require(msg.value >= coste, "Compra menos Tokens o paga con mas ethers.");
+        //Devolvemos cambio si se paga de mas(diferencia de lo que el cliente paga)
+        uint returnValue = msg.value - coste;
+        //Disney retorna la cantidad de ethers al cliente
+        msg.sender.transfer(returnValue);//en este caso msg.sender es el destinatario del vuelto
+        //Balance de tokens del contrato(tokens disponibles)
+        uint Balance = balanceOf();
+        require(_numTokens <= Balance, "Compra un número menor de tokens");//requiero que el numero de tokens sea menor o igual al balance de los tokens creados
+        //Se transfieren los tokens al cliente
+        token.transfer(msg.sender, _numTokens);//donde msg.sender es quien compra
+        //Registro de Tokens comprados a traves del maping
+        Clientes[msg.sender].tokens_comprados += _numTokens; //Al colocar el signo + logro que el valor sea acumulativo, es decir que almacene el numero total de tokens que ese cliente lleva comprados, de este modo puedo trabajar por ejemplo la fidelizacion
+    }
+ 
+    //Balance de Tokens del contrato Disney
+    function balanceOf() public view returns(uint){
+        return token.balanceOf(address(this)); //definimos cuantos tokens quedan disponibles en this contrato
+    }
+ 
+    //Viualizar el numero de tokens que le quedan por gastar a un cliente
+    function misTokens() public view returns(uint){
+        return token.balanceOf(msg.sender); //balanceOf controlara el numero de tokens restantes del cliente
+    }
+ 
+    //funcion para generar mas tokens en caso que sea necesario
+    function generaTokens(uint _numTokens) public Unicamente(msg.sender){ //En este caso agregamos un modificador para que solo sea el owner(Disney) quien crea los tokens
+        token.increaseTotalSuply(_numTokens); //incrementamos el numero de tokens con la funcion definida en el contrato ERC20
+    }
+ 
+    //Modificador para controlar las funciones ejecutables unicamente por Disney
+    modifier Unicamente(address _direccion){
+        require(_direccion == owner, "No tienes permisos para ejecutar esta función.");
+        _;
+    }
+ 
+    //------------------- GESTIÓN DE DISNEY -------------------
+ 
+    //Eventos
+    event disfruta_atracciones(string, uint, address);//nombre de la atraccion y que la disfrute
+    event nueva_atraccion(string, uint);//cuando se creen nuevas atracciones
+    event baja_atraccion(string);//cuando alguna se encuentre en reparacion o inhabilitada
+    event nueva_comida(string, uint, bool); //Dar de alta una comida
+    event baja_comida(string); //Dar de baja una comida
+    event disfruta_comida(string, uint, address); //nombre de la comida y que la disfrute
+ 
+    //Estructura de datos para las atracciones
+    struct atraccion{
+        string nombre_atraccion;
+        uint precio_atraccion;
+        bool estado_atraccion; //para los casos de baja o modificacion de atracciones
+    }
+ 
+    //Estructura de datos para las comidas
+ 
+    struct comidas{
+        string nombre_comida;
+        uint precio_comida;
+        bool estado_comida;
+    }
+   
+    //Mapping para relacionar un nombre de una atraccion con una estructura de datos de la atraccion
+    mapping(string => atraccion) public MappingAtracciones;
+ 
+    //Mapping para relacionar un nombre de una comida con una estrucutra de datos de la comidas
+    mapping(string => comidas) public Mappingcomidas;
+ 
+    //Array para almacenar el nombre de las atracciones
+    string[] Atracciones; //necesito que sea un array porque será un historial de los clientes
+ 
+    //Array para almacenar el nombre de las comidas
+    string[] Comidas;
+ 
+    //Mapping para relacionar un cliente con su historial de consumos de atracciones en Disney
+    mapping(address => string[]) HistorialAtracciones;
+ 
+    //Mapping para relacionar un cliente con su historial de consumos de comidas en Disney
+    mapping(address => string[]) HistorialComidas;
+ 
+    //Creando nuevas atracciones a partir de sus costos en tokens
+ 
+    //Star Wars --> 2 tokens
+    //Toy Story --> 5 tokens
+    //Piratas del Caribe --> 8 tokens
+ 
+    function nuevaAtraccion(string memory _nombreAtraccion, uint _precio) public Unicamente(msg.sender){ //solo puede crearlas el owner(Disney)
+        //Creacion de una atraccion en Disney
+        MappingAtracciones[_nombreAtraccion] = atraccion(_nombreAtraccion, _precio, true);
+        //Almacenar en el array el nombre de la atraccion
+        Atracciones.push(_nombreAtraccion);
+        //Emision del evento cuando se crea una nueva atraccion
+        emit nueva_atraccion(_nombreAtraccion, _precio);
+    }
+ 
+     //Creando nuevas comidas a partir de sus costos en tokens
+ 
+    //Hamburguesas
+    //Panchos
+    //Pastas
+ 
+     function nuevaComida(string memory _nombrecomida, uint _precio) public Unicamente(msg.sender){ //solo puede crearlas el owner(Disney)
+        //Creacion de una atraccion en Disney
+        Mappingcomidas[_nombrecomida] = comidas(_nombrecomida, _precio, true);
+        //Almacenar en el array el nombre de la atraccion
+        Comidas.push(_nombrecomida);
+        //Emision del evento cuando se crea una nueva atraccion
+        emit nueva_comida(_nombrecomida, _precio, true);
+    }
+ 
+    //Funcion para dar de baja a las atracciones en Disney
+    function bajaAtraccion(string memory _nombreAtraccion) public Unicamente(msg.sender){
+        //El estado de la atraccion pasa  a FALSE => no esta en uso
+        MappingAtracciones[_nombreAtraccion].estado_atraccion = false;
+        //Notificamos la baja de la atraccion con el evento
+        emit baja_atraccion(_nombreAtraccion);
+    }
+ 
+     //Funcion para dar de baja a las comidas en Disney
+    function bajaComida(string memory _nombrecomida) public Unicamente(msg.sender){
+        //El estado de la atraccion pasa  a FALSE => no esta en uso
+        Mappingcomidas[_nombrecomida].estado_comida = false;
+        //Notificamos la baja de la atraccion con el evento
+        emit baja_comida(_nombrecomida);
+    }
+ 
+    //Visualizar las atracciones de Disney
+    function atraccionesDisponibles() public view returns(string[] memory){
+        return Atracciones;
+    }
+ 
+    //Visualizar las comidas de Disney
+    function comidasDisponibles() public view returns(string[] memory){
+        return Comidas;
+    }
+ 
+    //Funcion para subirse a una atraccion en Disney y PAGAR con tokens ese consumo
+    function subirseAtraccion(string memory _nombreAtraccion) public{
+        //Precio de la atraccion en Tokens
+        uint tokens_atraccion = MappingAtracciones[_nombreAtraccion].precio_atraccion;
+        //Verificar el estado de la atraccion(si esta disponible para su uso)
+        require(MappingAtracciones[_nombreAtraccion].estado_atraccion == true, "La atraccion no está disponible en estos momentos"); //vemos si el estado es true y en caso que no devolvemos el mensaje
+        //Verificar si el cliente tiene suficientes tokens para pagar la atraccion
+        require(tokens_atraccion <= misTokens(), "Necesitas mas tokens para subirte a esta atraccion.");
+        /* El cliente paga la atracción en Tokens:
+        - Ha sido necesario crear una funcion en ERC20.sol con el nombre: "transferencia_disney" debido a que en
+        caso de usar el transfer las direcciones que se escogian para realizar la transaccion eran equivocadas, ya que el msg.sender
+        que recibia el metodo Transfer o TransferFrom era la direccion del contrato y no del cliente*/
+        token.transferencia_disney(msg.sender, address(this), tokens_atraccion);
+        //Almacenamiento en el historial de atracciones del cliente
+        HistorialAtracciones[msg.sender].push(_nombreAtraccion);
+        //Emitimos un evento para que disfrute la atraccion
+        emit disfruta_atracciones(_nombreAtraccion, tokens_atraccion, msg.sender);
+ 
+    }
+ 
+      //Funcion para consumir una comida en Disney y PAGAR con tokens ese consumo
+    function pedirComida(string memory _nombrecomida) public{
+        //Precio de la comida en Tokens
+        uint tokens_comidas = Mappingcomidas[_nombrecomida].precio_comida;
+        //Verificar el estado de la comida(si esta disponible para su consumo)
+        require(Mappingcomidas[_nombrecomida].estado_comida == true, "La comida no está disponible en estos momentos"); //vemos si el estado es true y en caso que no devolvemos el mensaje
+        //Verificar si el cliente tiene suficientes tokens para pagar la comida
+        require(tokens_comidas <= misTokens(), "Necesitas mas tokens para pedir esta comida.");
+        token.transferencia_disney(msg.sender, address(this), tokens_comidas);
+        //Almacenamiento en el historial de comidas del cliente
+        HistorialComidas[msg.sender].push(_nombrecomida);
+        //Emitimos un evento para que disfrute la atraccion
+        emit disfruta_comida(_nombrecomida, tokens_comidas, msg.sender);
+ 
+    }
+ 
+    //Visualizar el historial completo de atracciones disfrutadas por un cliente
+    function Historial() public view returns(string[] memory){
+        return HistorialAtracciones[msg.sender];
+    }
+ 
+     //Visualizar el historial completo de comidas disfrutadas por un cliente
+    function Historialcomidas() public view returns(string[] memory){
+        return HistorialComidas[msg.sender];
+    }
+ 
+    //Devolver tokens que no haya consumido el cliente
+    function DevolverTokens(uint _numTokens) public payable{ //al devolver los tokens le retornamos ethers y por eso usamos la funcion payable
+        //Numero de tokens a devolver es positivo
+        require(_numTokens > 0, "Necesitas devolver una cantidad positiva de tokens.");
+        //El usuario debe tener el numero de tokens que desea devolver
+        require(_numTokens <= misTokens(), "No tiene los tokens que deseas devolver");
+        //El cliente devuelve los tokens
+        token.transferencia_disney(msg.sender, address(this), _numTokens);
+        //Disney devuelvo los ether al cliente
+        msg.sender.transfer(precioToken(_numTokens));
+ 
+    }
+}
+ 

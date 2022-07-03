@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+ 
+contract OMS_COVID{
+ 
+    //Direccion de la OMS --> Dueño del contrato
+    address public OMS;
+ 
+    //Creamos el contruactor para almacenar esa direccion
+    constructor() public{
+        OMS = msg.sender;
+    }
+ 
+    //Mapping para relacionar las direcciones de los centros de salud con la validez del sistema de gestión
+ 
+    mapping(address => bool) public Validacion_CentroSalud; //le asignamos una condicion, si es true automaticamente podra crear el smartcontract del centro
+    //Mappingo para relacionar la direccion de un centro de salud con su contrato
+    mapping(address => address) public CentroSalud_contrato;
+ 
+    //Creamos un array de direcciones que almacene los contratos de los centros de salud validados
+    address[] public direcciones_contratos_salud;
+ 
+    //Array de direcciones de solicitudes de participacion
+    address[] Solicitudes;
+ 
+    //Eventos a emitir
+    event SolicitudAcceso(address);
+    event nuevoCentroValidado(address);
+    event nuevoContrato(address, address); //una es la direccion del contrato y la otra es la direccion del centro de salud
+   
+    //Modifier que permita unicamente la ejecucion de funciones por la OMS
+    modifier unicamenteOMS(address _direccion){
+        require(_direccion == OMS, "No tienes permisos para ejecutar esta funcion.");
+        _;
+    }
+ 
+    //Funcion que permita solicitar acceso a un centro de salud al sistema medico de la OMS
+    function solicitarAcceso() public{
+        Solicitudes.push(msg.sender);
+    //Emitimos el evento de solicitud
+    emit SolicitudAcceso(msg.sender);
+    }
+ 
+    //Funcion que permita visualizar las direcciones que han solicitado el acceso
+    function visualizarSolicitudes() public view unicamenteOMS(msg.sender) returns(address[] memory){
+        return Solicitudes; //que devuelva el array que almacena las solicitudes
+    }
+ 
+ 
+    //Funcion para validar nuevos centros de salud para que puedan autogestionarse --> Unicamente la OMS
+    function centrosSalud(address _centroSalud) public unicamenteOMS(msg.sender){
+        //Asignacion del estado de validez al centro de salud
+        Validacion_CentroSalud[_centroSalud] = true;
+        //Emision del nuevo centro validado
+        emit nuevoCentroValidado(_centroSalud);
+    }
+ 
+ 
+    //Funcion que permita crear un contrato inteligente de un centro de salud
+    function FactoryCentroSalud() public{
+        //Filtrado para unicamente los centros de salud validados puedan ejecutar esta funcion
+        require(Validacion_CentroSalud[msg.sender] == true, "No tienes permisos para ejecutar esta funcion.");
+        //Generar un Smart Contract --> Para ello debemos generar una direccion
+        address contrato_CentroSalud = address(new centroSalud(msg.sender));
+        //Almacenamos la direccion del contrato en el array
+        direcciones_contratos_salud.push(contrato_CentroSalud);
+        //Relacion entre el centro de salud y su contrato
+        CentroSalud_contrato[msg.sender] = contrato_CentroSalud;
+        //Emision del evento nuevo contrato
+        emit nuevoContrato(contrato_CentroSalud, msg.sender);
+    }
+}
+ 
+ 
+//Contrato autogestionable por el Centro de Salud para remitir las pruebas PCR de COVID-19
+ 
+contract centroSalud{
+   
+    //Direcciones iniciales
+    address public direccionCentroSalud;
+    address public direccionContrato;
+ 
+    constructor(address _direccion) public {
+        direccionCentroSalud = _direccion;
+        direccionContrato = address(this);
+    }
+ 
+ 
+   
+    //Mapping para relacionar el hash de la persona con los resultados(diagnostico + codigo IPFS)
+    mapping(bytes32 => Resultados) resultados_COVID;
+ 
+    //Estructura de los resultados
+    struct Resultados{
+        bool diagnostico;
+        string _codigoIPFS;
+    }
+ 
+    //Eventos
+    event nuevoResultado(bool, string);
+ 
+    //Modifier para que unicamente los centros de salud puedan ejecutar ciertas funciones
+    modifier unicamenteCentroSalud(address _direccion){
+        require(_direccion == direccionCentroSalud, "No tienes permisos para ejecutar esta funcion.");
+        _;
+    }
+ 
+    //Funcion para emitir un resultado de una prueba de Covid
+    function ResultadosPruebaCovid(string memory _idpersona, bool _resultadoCOVID, string memory _codigoIPFS) public unicamenteCentroSalud(msg.sender){
+        //Hash de la id de la persona
+        bytes32 hash_id_persona = keccak256(abi.encodePacked(_idpersona));
+        //Relacion del hash con la estructura de resultados
+        resultados_COVID[hash_id_persona] = Resultados(_resultadoCOVID, _codigoIPFS);
+        //Emision del evento
+        emit nuevoResultado(_resultadoCOVID, _codigoIPFS);
+    }
+ 
+    //Funcion que permite visualizar las pruebas del COVID-19
+    function visualizarResultados(string memory _idpersona) public view returns(string memory _resultadoPrueba, string memory _codigoIPFS){
+        //Hash del id de la persona
+        bytes32 hash_id_persona = keccak256(abi.encodePacked(_idpersona));
+        //Retorno de un booleano como un string utilizando la logica de un if
+        string memory resultadoPrueba;
+        if(resultados_COVID[hash_id_persona]. diagnostico == true){
+            resultadoPrueba = "Positivo";
+        }else{
+            resultadoPrueba = "Negativo";
+        }
+        //retorno de parametros necesarios
+        /*Se puede aplicar un return con los parametros a devolver, pero se hizo un truquillo donde los parametros esperados ya estan declarados en el returns y por lo tanto luego se asigna como variable lo que esperan esos parametros*/
+        _resultadoPrueba = resultadoPrueba;
+        _codigoIPFS = resultados_COVID[hash_id_persona]._codigoIPFS;
+    }
+ 
+}

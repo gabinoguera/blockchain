@@ -1,0 +1,183 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+import "./ERC20.sol";
+ 
+ 
+contract loteria{
+ 
+    //---------------------- DECLARACIONES INICIALES ---------------------
+ 
+    //Instanciamos el contreato token
+    ERC20Basic private token;
+ 
+    //Direcciones iniciales
+    address public owner; //el dueño del contrato será publico
+    address public contrato; //la direccion del smartcontract tambien sera publica
+ 
+    //Numero de tokens a crear
+    uint public tokens_creados = 10000;
+ 
+    //Eventos de compra de tokens
+    event comprandoTokens(uint, address);
+ 
+    //Constructor
+    constructor() public{
+        token = new ERC20Basic(tokens_creados);
+        owner = msg.sender;
+        contrato = address(this); //la propia direccion de este contrato sentenciado por this
+    }
+ 
+    //------------------------------ TOKEN ---------------------------------
+ 
+    //Estabelecemos el precio de tokens en ethers
+    function precioTokens(uint _numTokens) internal pure returns(uint){
+        return _numTokens*(1 ether); //definimos que 1 token es igual a 1 ether
+    }
+ 
+    //Funcion que permita a la loteria mas tokens cuando lo disponga
+    function generaTokens(uint _numTokens) public Unicamente(msg.sender){
+        token.increaseTotalSuply(_numTokens);
+    }
+ 
+    //Modificador para Unicamente(solo puede hacerlo el owner del contrato)
+    modifier Unicamente(address _direccion){
+        require(_direccion == owner, "No tienes permisos para ejecutar esta funcion.");
+        _;
+    }
+ 
+    //funcion para comprar tokens(boletos de la loteria)
+    function compraTokens(uint _numTokens) public payable{ //se trata de una funcion payable porque hay transferencias de tokens
+        //Calcular el coste de los tokens con una variable
+        uint coste = precioTokens(_numTokens);
+        //Se requiere que el valor de ethers pagados sea equivalente al coste
+        require(msg.value >= coste, "Compra menos Tokens o paga con mas Ethers.");
+        //Funcion para dar el vuelto(diferencia del pago)
+        uint returnValue = msg.value - coste;
+        //Transferimos la diferencia
+        msg.sender.transfer(returnValue);
+        //Obtener el balance de Tokens del contrato
+        uint Balance = tokensDisponibles();
+        //Filtros para evaluar los tokens a comprar con los disponibles en existencia
+        require(_numTokens <= Balance, "Compra un numero menor de Tokens.");
+        //Transferencia de Tokens al comprador
+        token.transfer(msg.sender, _numTokens);
+        //Evento de compra de tokens
+        emit comprandoTokens(_numTokens, msg.sender);
+    }
+ 
+    //Balance de Tokens en el contrato de Loteria
+    function tokensDisponibles() public view returns(uint){
+        return token.balanceOf(contrato);
+    }
+ 
+    //Obtener el balance de tokens acumulados en el Bote
+    function Bote() public view returns(uint){
+        return token.balanceOf(owner);
+    }
+ 
+    //Funcion para que la persona pueda ver su balance
+    function misTokens() public view returns(uint){
+        return token.balanceOf(msg.sender);
+    }
+ 
+ 
+    //------------------------------ LOTERIA ---------------------------------
+ 
+    //DECLARACIONES INICIALES
+ 
+    //Precio en Tokens del boleto de loteria
+    uint public precioBoleto = 5;
+    //Mapping con la relacion entre la persona que compra el boleto y los numeros de los boletos
+    mapping(address => uint[]) idPersona_boletos; //la relacion es con un array ya que una persona puede comprar mas de un boleto
+    //Mapping que relaciona al numero ganador con la direccion del ganador
+    mapping(uint => address) ADN_boleto;
+    //Numeros aleatorios para sortear
+    uint randNonce = 0;
+    /*El ‘number that can be only used once’, (número que solo puede usarse una vez) también conocido como nonce, es un número arbitrario que se emplea en criptografía dentro de los denominados protocolos de autenticación.
+    En una red blockchain basada en Proof of Work (Prueba de Trabajo) el nonce funciona en combinación con el hash como un elemento de control para evitar la manipulación de la información de los bloques.
+    Este número aleatorio garantiza que los hash antiguos no se pueden volver a utilizar en lo que se denominan ataques de repetición*/
+ 
+    //Boletos que se han generado
+    uint[] boletos_comprados;
+ 
+    //Eventos
+    event boleto_comprado(uint, address); //cuando se compra un boleto
+    event boleto_ganador(uint); //cuando sale el ganador
+    event token_devueltos(uint, address); //Evento para devolver tokens
+ 
+    //GESTION
+ 
+    //Funcion que permita comprar los boletos
+    function compraBoleto(uint _boletos) public{
+        //Calculamos precio total de los boletos a comprar
+        uint precio_total = _boletos*precioBoleto;
+        //Filtrado de los tokens a pagar (cantidad de lo que quiero comprar y lo que tengo disponible)
+        require(precio_total <= misTokens(), "Necesitas comprar mas Tokens.");
+        //Transferencia de tokens al owner -> al bote/premio
+        token.transfer_loteria(msg.sender, owner, precio_total); //En este caso la transferencia debe hacerse desde quien compra al bote
+        /*Creamos una funcion en ERC20 de nombre transfer_loteria para que sea la direccion de la persona fisica la que transfiera al bote*/
+ 
+ 
+         /*Asignamos un boleto con un numero aleatorio de loteria a quien compra
+        Tomamos la marca de tiempo actual con now, la direccion del comprador y un nonce para no ejecutar dos veces la misma funcion de hash con los mismos parametros de entrada y en incremento,
+        se utiliza keccak256 para convertir estas entradas a un hash aleatorio y lo convertimos a un uint y lo dividimos entre 10000 para coger los ultimos 4 digitos (entre 0 y 9999) */
+        for(uint i=0; i < _boletos; i++){
+            uint random = uint(keccak256(abi.encodePacked(now, msg.sender, randNonce))) %10000;
+            randNonce ++;
+            //Almacenamos los datos de los boletos
+            idPersona_boletos[msg.sender].push(random);
+            //Numero de boleto comprado
+            boletos_comprados.push(random);
+            //Aisgnaicion del ADN del boleto para tener un ganador
+            ADN_boleto[random] = msg.sender;
+            //Emision del evento
+            emit boleto_comprado(random, msg.sender);
+        }
+ 
+        }
+ 
+    //Visualizar nuestros numeros de boleto
+    function tusBoletos() public view returns(uint[] memory){
+        return idPersona_boletos[msg.sender];
+ 
+    }
+ 
+    //funcion para generar un GANADOR e ingresarle los TOKENS
+    function generarGanador() public Unicamente(msg.sender){
+        //Debe haber mas de un boleto comprado para poder hacer el sorteo
+        require(boletos_comprados.length > 0, "No hay boletos comprados");
+        //Declaramos la longitud del array
+        uint longitud = boletos_comprados.length;
+        //Aleatoriamente elijo un número entre 0 y la longitud
+        // 1 - Eleccion de una posicion aleatoria del array
+        uint posicion_array = uint(uint(keccak256(abi.encodePacked(now))) % longitud); //generamos un hash aleatoriamente determinados por la longitud que es el numero de boletos comprados
+        /*transformamos en uint al hash que genera keccak256 y convertimos en uint el resultado de la division por su longitud ya que puede darnos un resultado decimal*/
+ 
+        // 2- Seleccion del numero aleatorio mediante la posicion del array aleatorio
+        uint eleccion = boletos_comprados[posicion_array];
+        //Emit evento del ganador
+        emit boleto_ganador(eleccion);
+        //Recuperamos la direccion del ganador
+        address direccion_ganador = ADN_boleto[eleccion]; //la direccion del ganador se asigna al
+        //Enviar los tokens al premio ganador haciendo uso de ERC20
+        token.transfer_loteria(msg.sender, direccion_ganador, Bote());
+    }
+ 
+    //Devolucion de los Tokens que la persona no haya utilizado. Por ejemplo, compro 12 tokens y los convierto en 2 boletos de esta loteria(cada boleto cuesta 5) los 2 restantes se devuelven
+    function devolverTokens(uint _numTokens) public payable{
+        //El numero de tokens a devolver debe ser mayor a 0
+        require(_numTokens > 0, "Necesitas devolver un numero positivo de Tokens.");
+        //El usurio/cliente debe tener los tokens que desea devolver
+        require(_numTokens <= misTokens(), "No tienes los Tokens que deseas devolver.");
+ 
+        //DEVOLUCION
+        //1. El cliente devuelve los tokens
+        //2. La loteria paga los tokens devueltos en ethers
+ 
+        token.transfer_loteria(msg.sender, address(this), _numTokens); //Le devolvemos el numero de tokens al contrato
+        msg.sender.transfer(precioTokens(_numTokens));
+        //Emision del evento
+        emit token_devueltos(_numTokens, msg.sender);
+    }
+}

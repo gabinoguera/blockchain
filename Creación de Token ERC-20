@@ -1,0 +1,141 @@
+// Implementacion de la libreria SafeMath para realizar las operaciones de manera segura
+// Fuente: "https://gist.github.com/giladHaimov/8e81dbde10c9aeff69a1d683ed6870be"
+ 
+library SafeMath{
+    // Restas
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+      assert(b <= a);
+      return a - b;
+    }
+   
+    // Sumas
+    function add(uint256 a, uint256 b) internal pure returns (uint256) {
+      uint256 c = a + b;
+      assert(c >= a); //asevero que c es mayor o igual que a y sí se pasa             saltará el error
+      return c;
+    }
+   
+    // Multiplicacion
+    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+        if (a == 0) {
+            return 0;
+        }
+ 
+        uint256 c = a * b;
+        require(c / a == b, "SafeMath: multiplication overflow");
+ 
+        return c;
+    }
+}
+
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+import "./SafeMath.sol";
+ 
+ 
+// Gabriel ---> 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2
+// Coty ---> 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db
+// Nina ---> 0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB
+ 
+//metodos que van a ser accesibles desde el exterior(respondo a lo que necesita mi token para funcionar)
+//Estas primeras 3 funciones gestionan los valores de retorno de tipo entero, me sirven para saber cuantos tokens hay circulando, cuantos tiene una persona u otra, y si podemos gastar o el numero maximo de tokens que una persona puede gastar en funcion de la otra. Las tres devuelven enteros de 256bits y la implementacion de las 3 funciones estara ligada al numero de tokens totales que existan en un momento dado.
+interface IERC20{
+    //Devuelve la cantidad de tokens en existencia(cuantos token tenemos o si ya se acabaron)
+    function totalSupply() external view returns(uint256);
+    //Devuelve la cantidad de tokens para una direccion indicada por un parametro
+    function balanceOf(address account) external view returns(uint256); //El balance indica cuantos tokens tiene esa persona o address de nuestros tokens
+    //Devuelve el numero de tokens que el spender(el que gasta) podra gastar en nombre del propietario
+    function allowance(address owner, address spender) external view returns(uint256); //permiso para gastar de quien puede hacerlo
+ 
+    //Comprobaciones booleanas
+    //1. Si se puede llevar a cabo o no una operacion de transferencia: transferir al receptor una cantidad(¿tengo suficiente?)
+    function transfer(address recipient, uint256 amount) external returns(bool);
+    //2. Devuvelve el resultado con la operacion del gasto: el spender, realmente puede gastar lo que dice?
+    function approve(address spender, uint256 amount) external returns(bool);
+    //3.Devuelve un valor booleano con el resultado de la operacion de traspaso de tokens con el metodo allowance() previamente definido
+    function transferFrom(address sender, address recipient, uint256 amount) external returns(bool);
+ 
+    //Eventos
+    //1. se emite cuando una cantidad de tokens pase de un origen a un destino para que las partes sean notificadas
+    event Transfer(address indexed from, address indexed to, uint256 value); //es indexed porque el origen y destino lo pone el usuario, y es value porque es un valor exacto resultante de la operacion
+    //2. se emite cuando se establece una asignacion con el metodo allowance()
+    event Approval(address indexed owner, address indexed spender, uint256 value); //el metodo allowance permite gastar en nombre de otro ya sea porque tiene autorizacion para hacerlo o porque es propietario de parte de un token
+}
+ 
+ 
+//El siguiente contrato utiliza la interfaz previamente declarada como funciones externas al contrato pero necesarias para calcular y obtener datos importantes para el contrato
+ 
+//implementacion de la interface
+contract ERC20Basic is IERC20{
+ 
+    //variables constantes
+    string public constant name = "ERC20BlockchainA2"; //sera el nombre de la variable para lo que estamos creando
+    string public constant symbol = "ERC"; //definimos con symbol una abreviatura del nombre de la variable anterior
+    uint8 public constant decimals = 18; //como trabajaremos con decimales definimos con cuantos como maximo
+ 
+    //eventos
+    //invocamos los eventos para notificar las transacciones, los llamamos tokens porque es lo que estamos programando
+    event Transfer(address indexed from, address indexed to, uint256 tokens); // Transfer es para notificar que ha habido una transferencia
+    event Approval(address indexed owner, address indexed spender, uint256 tokens); //Approval es para aprobar una serie de transacciones en mi nombre por parte de otro
+ 
+    //libreria
+    using SafeMath for uint256; //invocamos la libreria para evitar overflows
+ 
+    //mappings y variable que define el numero entero para el total de tokens que se crearan. Se trata de variables privadas que no pueden verse ni modificarse
+    mapping(address => uint) balances; //relacionamos las direcciones con una cantidad de tokens
+    mapping(address => mapping(address => uint)) allowed; //este mapping de un mapping establece que a una direccion le puedan corresponder otras direcciones con cantidades de mi tokens ya que puede que se hayan distribuido(vendido) entre mas de uno. En este caso por ejemplo quienes han minado esta transaccion pueden ceder parte de ella a otros
+ 
+    uint256 totalSupply_; //este entero es la suma total de tokens existentes(limite global de los tokens exitentes) ya que no se fabrican mas tokens de los que se han definido previamente sino que se distribuyen
+ 
+ 
+    //contructor que va a tomar la cantidad total de tokens que queremos crear para una moneda virtual, es el punto de partida para la creacion de cualquier moneda
+    constructor(uint256 initialSupply) public{
+        totalSupply_ = initialSupply; //definimos aqui que el total se tokens existentes es igual al definido inicialmente
+        balances[msg.sender] = totalSupply_; //quien crea la moneda es el owner de todos los tokens
+    }
+ 
+    function totalSupply() public override view returns(uint256){
+        return totalSupply_; //la variable previamente definida de totalSupply_ no puede ser accedida ni modificada pero si consultada a traves de esta funcion o metodo
+    }
+ 
+    function increaseTotalSupply(uint newTokensAmount) public{ //esta funcion me permite modificar el totalSupply para crear nuevos tokens al igual que se crean por ejemplo nuevas cantidades de Bitcoin o Ethereum
+        totalSupply_ += newTokensAmount; //incrementamos del totalSupply_
+        balances[msg.sender] += newTokensAmount; //asignamos esa cantidad nueva creada a quien es el dueño del totalSupply es decir al creador
+    }
+ 
+    function balanceOf(address tokenOwner) public override view returns(uint256){
+        return balances[tokenOwner]; //devuelvo a traves del mapping que los relaciona el balance que le corresponde al dueño de los tokens que esta haciendo uso de la funcion o esta operando. DEBE ser el dueño del token y no es el que quiere gastar en funcion de otro sino el que posee determinada cantidad de tokens de mi moneda virtual
+    }
+ 
+    function allowance(address owner, address delegate) public override view returns(uint256){
+        return allowed[owner][delegate]; //Todos los mappings que tienen repartida cantidades permitidas(tokens delegados) por el poseedor original para ser gastados
+    }
+ 
+    function transfer(address recipient, uint256 numTokens) public override returns(bool){ //un emisor desea enviar tokens a un receptor
+       require(numTokens <= balances[msg.sender]); //primero requiero que los tokens que voy a enviar sean menos o iguales a la cantidad que poseo y para ello lo relaciono con el mapping de balance
+       //Transaccion. Es importante que el orden sea primero quitar de la wallet del que transfiere y luego agregar en la wallet del que lo recibe
+       balances[msg.sender] = balances[msg.sender].sub(numTokens); //si el require es true entonces podre enviar y se procede a restar del numero total de tokens que tiene el emisor los que estoy transfiriendo mediante la resta de la libreria SafeMath al mapping balances
+       balances[recipient] = balances[recipient].add(numTokens); //Lo opuesto a lo anterior, en el balance del receptor sumo con safeMath los tokens que recibo
+       emit Transfer(msg.sender, recipient, numTokens); //notificamos la transaccion a todo el sistema distribuido
+        return true; //si se cumplieron todas las condiciones entonces devuelvo true
+    }
+    //En este caso soy el propietario de determinada cantidad de tokens pero apruebo que otro gaste(spender) en mi nombre
+    function approve(address delegate, uint256 numTokens) public override returns(bool){
+        allowed[msg.sender][delegate] = numTokens; //delego en este tercero el que pueda utilizar estos tokens que va a transferir a traves del mapping
+        emit Approval(msg.sender, delegate, numTokens); //notifico que he delegado y apruebo que se haga esta transferencia
+        return true;
+    }
+    //En este caso operamos como un intermediario ya que transferimos tokens que son del owner al buyer que los compra(somos el delegado)
+    function transferFrom(address owner, address buyer, uint256 numTokens) public override returns(bool){ //el owner vende, el buyer esta comprando
+        require(numTokens <= balances[owner]); //el propietario debe disponer de los tokens que el comprador pretende comprar
+        require(numTokens <= allowed[owner][msg.sender]); //este require es necesario porque como intermediarios nosotros debemos tener permisos para hacer la transferencia debemos estar en el allowed
+        balances[owner] = balances[owner].sub(numTokens); //hemos quitado aqui del balance del owner los tokens que se pretenden transferir
+        allowed[owner][msg.sender] = allowed[owner][msg.sender].sub(numTokens); //me quito en mi cuenta delegado los tokens que se me habian permitido transferir
+        balances[buyer] = balances[buyer].add(numTokens); //Ahora si el buyer recibe un numero de tokens
+        emit Transfer(owner, buyer, numTokens); //notifico a todo el mundo que hubo esta trasnferencia
+        return true;
+    }
+ 
+ 
+}

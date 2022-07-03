@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.4.4 <0.7.0;
+pragma experimental ABIEncoderV2;
+ 
+ 
+// -----------------------------------
+//  CANDIDATO   |   EDAD   |      ID
+// -----------------------------------
+//  Toni        |    20    |    12345X
+//  Alberto     |    23    |    54321T
+//  Joan        |    21    |    98765P
+//  Javier      |    19    |    56789W
+ 
+ 
+contract votacion{
+ 
+    //Direccion del propietario del contrato
+    address public owner;
+ 
+    //Constructor
+    constructor() public{
+    owner = msg.sender; //el constructor asigna la direccion de este contrato al responsable de este proceso
+    }
+ 
+    //Relacion entre el nombre del candidato y el hash de sus datos personales
+    mapping(string => bytes32) ID_candidato;
+ 
+    //Relacion entre el candidato con el numero de votos del candidato para poder ver en tiempo real el numero de votos
+    mapping(string => uint) votos_candidato;
+ 
+    //Listado con todos los candidatos con un array para que todos puedan ver quien se ha presentado como candidato
+    string[] candidatos;
+ 
+    //Lista de los votantes, no su id porque el voto secreto, pero necesitamos identificarlos de algun modo para que no puedan repetir voto, solo pueden votar una vez. Almacenaremos el hash de la direccion ya que ocupa menos espacio por ser un resumen de los datos.
+    bytes32[] votantes; //definimos un array dinamico para que los hashes de las direcciones de los votantes se almacenen
+ 
+ 
+    //Funciones
+ 
+    //La primera es para que todos los que se quieran presentar como candidatos puedan hacerlo
+    function Representar(string memory _nombreCandidato, uint _edadCandidato, string memory _idCandidato) public{
+        //calcular el hash de los datos del candidato
+        bytes32 hash_candidato = keccak256(abi.encodePacked(_nombreCandidato, _edadCandidato, _idCandidato));
+        //Almacenar el hash de los datos del candidato en el mapping ligado a su nombre
+        ID_candidato[_nombreCandidato] = hash_candidato;
+        //Actualizar el array con la lista de candidatos
+        candidatos.push(_nombreCandidato);//push añade al array un valor, en este caso el candidato
+    }
+ 
+    //Funcion para saber cuales son los candidatos que se han presentado
+    function verCandidatos() public view returns(string[] memory){ //no es necesario pasarle parametros
+        return candidatos; //devuelve la lista de los candidatos almacenados en el array
+ 
+    }
+ 
+    //Funcion para votar
+    function votar(string memory _candidato) public{
+        //calculamos el hash del votante, su direccion, para identificar quien esta queriendo votar
+        bytes32 hash_votante = keccak256(abi.encodePacked(msg.sender));
+        //Recorremos el array de votantes para saber si ya ha votado quien esta intentando hacerlo
+        for(uint i=0; i<votantes.length; i++){
+            require(votantes[i] != hash_votante, "Ya has votado previamente");//verificamos que no haya votado ya
+        }
+ 
+        //Si el votante NO ha votado lo añadimos al array
+        votantes.push(hash_votante);
+ 
+        //Añadimos el voto en caso que pase todos los filtros
+        votos_candidato[_candidato] ++;
+    }
+ 
+    //funcion para saber la cantidad de votos que tiene un candidato a traves de su nombre
+    function verVotos(string memory _candidato) public view returns(uint){
+        return votos_candidato[_candidato]; //nos devuelve cuantos votos tiene a traves del mapping que relaciona el nombre del candidato con la cantidad de votos
+    }
+ 
+    //*FUNCION AUXILIAR para convertir un dato uint en string
+    function uint2str(uint _i) internal pure returns (string memory _uintAsString) {
+        if (_i == 0) {
+            return "0";
+        }
+        uint j = _i;
+        uint len;
+        while (j != 0) {
+            len++;
+            j /= 10;
+        }
+        bytes memory bstr = new bytes(len);
+        uint k = len - 1;
+        while (_i != 0) {
+            bstr[k--] = byte(uint8(48 + _i % 10));
+            _i /= 10;
+        }
+        return string(bstr);
+    }
+ 
+    //funcion que nos permite hacer un seguimiento de como se estan desarrollando las votaciones: cantidad de votos que tienen los candidatos
+    function verResultados() public view returns(string memory){
+        //declaramos una variable que tenga a los candidatos con sus respectivos votos
+        string memory resultados = ""; //*como necesitamos ademas del nombre el numero de votos que es un uint lo que hacemos con una FUNCION AUXILIAR es convertir el uint en string para poder devolverlo en esta funcion
+        //Con un for recorremos el array declarado arriba que contiene a los candidatos
+        for(uint i=0; i<candidatos.length; i++){ //recorremos el array con los candidatos
+            resultados = string(abi.encodePacked(resultados, "(", candidatos[i], ",", uint2str(verVotos(candidatos[i])), ")-----")); //pasamos a bytes con abi.encodePacked el string y le pasamos la funcion que nos permitia ver los votos + la conversion del uint a traves de la function auxiliar + la actualizacion del candidato que ocupa la posicion i
+        }
+ 
+        return resultados; //devolvemos los resultados
+    }
+ 
+    //Funcion que nos devuelve el nombre del candidato que ha ganado
+    function ganador() public view returns(string memory){
+        //la variable string elGanador va a contener el candidato ganador
+        string memory elGanador = candidatos[0]; //suponemos a priori que el ganador es el que ocupa la posicion 1 del array de candidatos
+        bool flag; //nos va a avisar en caso de empate
+        //recorremos el array con el listado de candidatos para compararlos
+        for(uint i = 1; i<candidatos.length; i++){ //comenzamos a iterar el for desde la posicion 1 porque ya suponemos que la 0 es el ganador
+            if(votos_candidato[elGanador] < votos_candidato[candidatos[i]]){ //comparamos el numero de votos del mapping en la posicion 0 de elGanador y decimos que si es menor que los votos obtenidos por candidatos en la posicion i que se vaya iterando en el for
+                elGanador = candidatos[i]; //si la condicion se cumple, es decir elGanador tiene menos votos que el candidato en la posicion i entonces actualizamos su posicion
+                flag = false; //no tenemos situacion de empate por lo que actualizamos el flag a false
+            }else{
+                if(votos_candidato[elGanador] == votos_candidato[candidatos[i]]){ //el caso de que sea empate
+                    flag = true; //si hay empate el flag será true
+                }
+ 
+            }
+        }
+        //comprobamos si hubo empate
+        if(flag == true){
+            elGanador = "Hay un empate!"; //si es true comunicamos el empate
+        }
+ 
+        return elGanador;
+    }
+}
